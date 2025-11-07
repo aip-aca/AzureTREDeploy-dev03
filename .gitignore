@@ -11,6 +11,9 @@ env.bak/
 venv.bak/
 private.env
 
+#Sensitive
+secrets_and_variables.txt
+
 # Config
 config.yaml
 
