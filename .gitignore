@@ -13,6 +13,7 @@ private.env
 
 #Sensitive
 secrets_and_variables.txt
+secrets-variables.txt
 
 # Config
 config.yaml

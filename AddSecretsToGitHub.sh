@@ -9,7 +9,7 @@ set -euo pipefail
 REPO="aip-aca/AzureTREDeploy-dev03"
 ENVIRONMENT="DEV"
 
-SECRETS_FILE="secrets_and_variables.txt"
+SECRETS_FILE="secrets-variables.txt"
 
 command -v gh >/dev/null 2>&1 || {
   echo "[ERROR] GitHub CLI (gh) not found in PATH. Install it from https://cli.github.com/ and ensure it is authenticated." >&2
