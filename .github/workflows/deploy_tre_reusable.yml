@@ -426,6 +426,10 @@ jobs:
           # then the default checkout will apply
           ref: ${{ inputs.prRef }}
 
+      - name: Clear Azure and Porter cache
+        run: |
+          rm -rf ~/.azure ~/.porter
+
       - name: Publish bundle
         uses: ./.github/actions/devcontainer_run_command
         with:
