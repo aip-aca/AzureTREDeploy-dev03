@@ -7,9 +7,13 @@
 set -euo pipefail
 
 REPO="aip-aca/AzureTREDeploy-dev03"
-ENVIRONMENT="DEV"
-
-SECRETS_FILE="secrets-variables.txt"
+# Set to empty string to use repository-level secrets (accessible to all environments)
+# Or set to specific environment name like "CICD", "DEV", etc.
+ENVIRONMENT="${GITHUB_ENVIRONMENT:-Dev}"
+# Set to "repo" to set repository-level secrets, or "env" to set environment-level secrets
+SECRET_SCOPE="${GITHUB_SECRET_SCOPE:-env}"
+SECRETS_FILE="secrets-variables.env"
+AZURE_CREDS_FILE="AZURE_CREDENTIALS.env"
 
 command -v gh >/dev/null 2>&1 || {
   echo "[ERROR] GitHub CLI (gh) not found in PATH. Install it from https://cli.github.com/ and ensure it is authenticated." >&2
@@ -26,19 +30,22 @@ if [[ ! -f "${SECRETS_FILE}" ]]; then
   exit 1
 fi
 
-echo "Ensuring environment '${ENVIRONMENT}' exists in ${REPO}..."
-if gh api \
-  --method GET \
-  --silent \
-  "repos/${REPO}/environments/${ENVIRONMENT}" >/dev/null 2>&1; then
-  echo "Environment '${ENVIRONMENT}' already exists."
-else
-  gh api \
-    --method PUT \
-    "repos/${REPO}/environments/${ENVIRONMENT}" \
+# Only ensure environment exists if we're setting environment-level secrets
+if [[ "${SECRET_SCOPE}" == "env" && -n "${ENVIRONMENT}" ]]; then
+  echo "Ensuring environment '${ENVIRONMENT}' exists in ${REPO}..."
+  if gh api \
+    --method GET \
     --silent \
-    >/dev/null
-  echo "Environment '${ENVIRONMENT}' created."
+    "repos/${REPO}/environments/${ENVIRONMENT}" >/dev/null 2>&1; then
+    echo "Environment '${ENVIRONMENT}' already exists."
+  else
+    gh api \
+      --method PUT \
+      "repos/${REPO}/environments/${ENVIRONMENT}" \
+      --silent \
+      >/dev/null
+    echo "Environment '${ENVIRONMENT}' created."
+  fi
 fi
 
 parse_file() {
@@ -47,7 +54,6 @@ parse_file() {
 
   local section="secrets"
   local line key value
-  local brace_balance json_value json_line
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%$'\r'}"
@@ -65,54 +71,20 @@ parse_file() {
       continue
     fi
 
+    # Extract key (everything before first whitespace)
     key="${line%%[[:space:]]*}"
+    # Extract value (everything after the key, trimmed)
     value="${line#${key}}"
-    value="${value## }"
+    # Trim all leading and trailing whitespace (spaces, tabs, newlines)
+    value="${value#"${value%%[![:space:]]*}"}"  # Remove leading whitespace
+    value="${value%"${value##*[![:space:]]}"}"  # Remove trailing whitespace
 
     if [[ "${section}" == "secrets" ]]; then
-      if [[ "${key}" == "AZURE_CREDENTIALS" && -z "${value}" ]]; then
-        json_value=""
-        brace_balance=0
-        while IFS= read -r json_line || [[ -n "$json_line" ]]; do
-          json_line="${json_line%%$'\r'}"
-
-          if [[ -z "${json_line}" ]]; then
-            continue
-          fi
-
-          if [[ "${json_line}" =~ ^[[:space:]]*# ]]; then
-            continue
-          fi
-
-          if [[ "${json_line}" == "===" ]]; then
-            echo "[ERROR] Unexpected section separator while parsing AZURE_CREDENTIALS JSON." >&2
-            exit 1
-          fi
-
-          json_value+="${json_line}"$'\n'
-
-          open_braces="${json_line//[^\{]/}"
-          close_braces="${json_line//[^\}]/}"
-          brace_balance=$((brace_balance + ${#open_braces} - ${#close_braces}))
-
-          if (( brace_balance == 0 )); then
-            break
-          fi
-        done
-
-        if (( brace_balance != 0 )); then
-          echo "[ERROR] AZURE_CREDENTIALS JSON is not balanced. Ensure braces match." >&2
-          exit 1
-        fi
-
-        secrets["${key}"]="${json_value%$'\n'}"
-      else
-        if [[ -z "${value}" ]]; then
-          echo "[ERROR] Secret '${key}' is missing a value." >&2
-          exit 1
-        fi
-        secrets["${key}"]="${value}"
+      if [[ -z "${value}" ]]; then
+        echo "[ERROR] Secret '${key}' is missing a value." >&2
+        exit 1
       fi
+      secrets["${key}"]="${value}"
     else
       if [[ -z "${value}" ]]; then
         echo "[ERROR] Variable '${key}' is missing a value." >&2
@@ -133,17 +105,47 @@ parse_file() {
 
 parse_file
 
+# Set secrets
 for key in "${!secrets[@]}"; do
-  echo "Setting environment secret '${key}'..."
-  printf '%s' "${secrets["${key}"]}" | gh secret set "${key}" --env "${ENVIRONMENT}" --repo "${REPO}" --body - >/dev/null
-  echo "Environment secret '${key}' set."
+  if [[ "${SECRET_SCOPE}" == "env" && -n "${ENVIRONMENT}" ]]; then
+    echo "Setting environment secret '${key}' in environment '${ENVIRONMENT}'..."
+    printf '%s' "${secrets["${key}"]}" | gh secret set "${key}" --env "${ENVIRONMENT}" --repo "${REPO}" --body - >/dev/null
+    echo "Environment secret '${key}' set."
+  else
+    echo "Setting repository secret '${key}'..."
+    printf '%s' "${secrets["${key}"]}" | gh secret set "${key}" --repo "${REPO}" --body - >/dev/null
+    echo "Repository secret '${key}' set."
+  fi
 done
 
+# Set variables (always environment-level if environment is specified, otherwise repository-level)
 for key in "${!variables[@]}"; do
-  echo "Setting environment variable '${key}'..."
-  gh variable set "${key}" --env "${ENVIRONMENT}" --repo "${REPO}" --body "${variables["${key}"]}" >/dev/null
-  echo "Environment variable '${key}' set."
+  if [[ -n "${ENVIRONMENT}" ]]; then
+    echo "Setting environment variable '${key}' in environment '${ENVIRONMENT}'..."
+    gh variable set "${key}" --env "${ENVIRONMENT}" --repo "${REPO}" --body "${variables["${key}"]}" >/dev/null
+    echo "Environment variable '${key}' set."
+  else
+    echo "Setting repository variable '${key}'..."
+    gh variable set "${key}" --repo "${REPO}" --body "${variables["${key}"]}" >/dev/null
+    echo "Repository variable '${key}' set."
+  fi
 done
+
+# Handle AZURE_CREDENTIALS separately from AZURE_CREDENTIALS.env file
+if [[ -f "${AZURE_CREDS_FILE}" ]]; then
+  if [[ "${SECRET_SCOPE}" == "env" && -n "${ENVIRONMENT}" ]]; then
+    echo "Setting AZURE_CREDENTIALS secret from '${AZURE_CREDS_FILE}' in environment '${ENVIRONMENT}'..."
+    # Read file content exactly as-is, preserving all formatting and spaces
+    gh secret set AZURE_CREDENTIALS --env "${ENVIRONMENT}" --repo "${REPO}" --body "$(cat "${AZURE_CREDS_FILE}")" >/dev/null
+    echo "AZURE_CREDENTIALS secret set."
+  else
+    echo "Setting AZURE_CREDENTIALS secret from '${AZURE_CREDS_FILE}' at repository level..."
+    gh secret set AZURE_CREDENTIALS --repo "${REPO}" --body "$(cat "${AZURE_CREDS_FILE}")" >/dev/null
+    echo "AZURE_CREDENTIALS secret set."
+  fi
+else
+  echo "[WARNING] AZURE_CREDENTIALS.env file not found. AZURE_CREDENTIALS secret not set."
+fi
 
 echo "All done."
 

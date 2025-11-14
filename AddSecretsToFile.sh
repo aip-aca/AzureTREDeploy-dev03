@@ -6,7 +6,7 @@
 set -euo pipefail
 
 CONFIG_FILE="config.yaml"
-SECRETS_FILE="secrets-variables.txt"
+SECRETS_FILE="secrets-variables.env"
 
 # Check if config file exists
 if [[ ! -f "${CONFIG_FILE}" ]]; then
@@ -18,13 +18,13 @@ fi
 get_config_value() {
   local key_path="$1"
   local file="$CONFIG_FILE"
-  
+
   # Convert dot notation to actual YAML path search
   case "$key_path" in
     "tre_id")
       grep "^tre_id:" "$file" | sed 's/tre_id:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1
       ;;
-    "location") 
+    "location")
       grep "^location:" "$file" | sed 's/location:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1
       ;;
     "management.mgmt_resource_group_name")
@@ -81,6 +81,9 @@ get_config_value() {
     "authentication.auto_workspace_group_creation")
       grep -A 30 "^authentication:" "$file" | grep "auto_workspace_group_creation:" | sed 's/.*auto_workspace_group_creation:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1
       ;;
+    "authentication.auto_grant_workspace_consent")
+      grep -A 30 "^authentication:" "$file" | grep "auto_grant_workspace_consent:" | sed 's/.*auto_grant_workspace_consent:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1
+      ;;
     "tre.core_address_space")
       grep -A 50 "^tre:" "$file" | grep "core_address_space:" | sed 's/.*core_address_space:[[:space:]]*//' | sed 's/[[:space:]]*$//' | head -1
       ;;
@@ -135,7 +138,7 @@ get_config_value() {
 # Function to write to secrets_and_variables.txt
 write_secrets_and_variables() {
   echo "Reading config from '${CONFIG_FILE}' and updating '${SECRETS_FILE}'..."
-  
+
   cat > "${SECRETS_FILE}" << 'EOF'
 ### SECRETS ###
 ###############
@@ -183,40 +186,18 @@ EOF
 
   for github_var in "${secrets_order[@]}"; do
     config_path="${secret_mappings[$github_var]}"
-    value=$(get_config_value "${config_path}")
-    
+    value=$(get_config_value "${config_path}" || echo "")
+
     if [[ -z "$value" ]]; then
-      echo "#${github_var}" >> "${SECRETS_FILE}"
+      # Add missing/empty variables with # prefix and trailing space
+      echo "#${github_var} " >> "${SECRETS_FILE}"
     else
       echo "${github_var} ${value}" >> "${SECRETS_FILE}"
     fi
   done
 
-  # Add special cases for AZURE_CREDENTIALS (exception - manually maintained)
-  echo "AZURE_CREDENTIALS" >> "${SECRETS_FILE}"
-  echo "{" >> "${SECRETS_FILE}"
-
-  subscription_id=$(get_config_value "management.arm_subscription_id")
-  tenant_id=$(get_config_value "authentication.aad_tenant_id")
-  
-  echo "  \"clientId\": \"<Add_Created_SP_Client_ID_With_Owner_Role>\"," >> "${SECRETS_FILE}"
-  echo "  \"clientSecret\": \"<Add_Created_SP_Client_Secret_With_Owner_Role>\"," >> "${SECRETS_FILE}"
-  
-  if [[ -n "$subscription_id" ]]; then
-    echo "  \"subscriptionId\": \"${subscription_id}\"," >> "${SECRETS_FILE}"
-  else
-    echo "  #\"subscriptionId\": \"\"," >> "${SECRETS_FILE}"
-  fi
-  
-  if [[ -n "$tenant_id" ]]; then
-    echo "  \"tenantId\": \"${tenant_id}\"" >> "${SECRETS_FILE}"
-  else
-    echo "  #\"tenantId\": \"\"" >> "${SECRETS_FILE}"
-  fi
-  
-  echo "}" >> "${SECRETS_FILE}"
   echo "===" >> "${SECRETS_FILE}"
-  
+
   # Variables section
   cat >> "${SECRETS_FILE}" << 'EOF'
 ### VARIABLES ###
@@ -243,6 +224,7 @@ EOF
     ["USER_MANAGEMENT_ENABLED"]="tre.user_management_enabled"
     ["AUTO_WORKSPACE_APP_REGISTRATION"]="authentication.auto_workspace_app_registration"
     ["AUTO_WORKSPACE_GROUP_CREATION"]="authentication.auto_workspace_group_creation"
+    ["AUTO_GRANT_WORKSPACE_CONSENT"]="authentication.auto_grant_workspace_consent"
     ["UI_SITE_NAME"]="ui_config.ui_site_name"
     ["UI_FOOTER_TEXT"]="ui_config.ui_footer_text"
   )
@@ -267,16 +249,18 @@ EOF
     "USER_MANAGEMENT_ENABLED"
     "AUTO_WORKSPACE_APP_REGISTRATION"
     "AUTO_WORKSPACE_GROUP_CREATION"
+    "AUTO_GRANT_WORKSPACE_CONSENT"
     "UI_SITE_NAME"
     "UI_FOOTER_TEXT"
   )
 
   for github_var in "${variables_order[@]}"; do
     config_path="${variable_mappings[$github_var]}"
-    value=$(get_config_value "${config_path}")
-    
+    value=$(get_config_value "${config_path}" || echo "")
+
     if [[ -z "$value" ]]; then
-      echo "#${github_var}" >> "${SECRETS_FILE}"
+      # Add missing/empty variables with # prefix and trailing space
+      echo "#${github_var} " >> "${SECRETS_FILE}"
     else
       echo "${github_var} ${value}" >> "${SECRETS_FILE}"
     fi
@@ -284,7 +268,7 @@ EOF
 
   # Add AZURE_ENVIRONMENT (exception - hardcoded)
   echo "AZURE_ENVIRONMENT AzureCloud" >> "${SECRETS_FILE}"
-  
+
   echo "Updated '${SECRETS_FILE}' with values from '${CONFIG_FILE}'"
 }
 

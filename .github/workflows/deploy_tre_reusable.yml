@@ -531,6 +531,11 @@ jobs:
           # if the following values are missing (i.e. not triggered via comment workflow)
           # then the default checkout will apply
           ref: ${{ inputs.prRef }}
+
+      - name: Clear Azure and Porter cache
+        run: |
+          rm -rf ~/.azure ~/.porter
+
       - name: Register bundle
         uses: ./.github/actions/devcontainer_run_command
         with:
@@ -595,6 +600,11 @@ jobs:
           # if the following values are missing (i.e. not triggered via comment workflow)
           # then the default checkout will apply
           ref: ${{ inputs.prRef }}
+
+      - name: Clear Azure and Porter cache
+        run: |
+          rm -rf ~/.azure ~/.porter
+
       - name: Register bundle
         uses: ./.github/actions/devcontainer_run_command
         with:
@@ -649,6 +659,11 @@ jobs:
           # if the following values are missing (i.e. not triggered via comment workflow)
           # then the default checkout will apply
           ref: ${{ inputs.prRef }}
+
+      - name: Clear Azure and Porter cache
+        run: |
+          rm -rf ~/.azure ~/.porter
+
       - name: Register bundle
         uses: ./.github/actions/devcontainer_run_command
         with:
