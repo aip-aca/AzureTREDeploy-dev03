@@ -75,4 +75,3 @@ jobs:
           /opt/certbot/bin/pip install --upgrade pip
           /opt/certbot/bin/pip install certbot
           make -C AzureTRE letsencrypt
-

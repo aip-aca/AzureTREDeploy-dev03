@@ -11,12 +11,6 @@ env.bak/
 venv.bak/
 private.env
 
-#Sensitive
-secrets_and_variables.txt
-secrets-variables.txt
-secrets-variables*.env
-AZURE_CREDENTIALS.env
-
 # Config
 config.yaml
 

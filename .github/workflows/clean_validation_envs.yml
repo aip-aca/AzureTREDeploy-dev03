@@ -1,6 +1,11 @@
 ---
 name: Clean Validation Environments
 
+# Ensure GITHUB_TOKEN can read pull requests
+permissions:
+  contents: read
+  pull-requests: read
+  
 on:  # yamllint disable-line rule:truthy
   schedule:
     # Every 2 hours
